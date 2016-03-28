@@ -85,7 +85,7 @@ end
 DATADOG_CLIENT = Statsd.new
 
 def submit_datadog_metrics(type, collection, project_key, metrics)
-  metrics.each_pair { |metric, value| DATADOG_CLIENT.send type, metric.to_s, value, :tags => [project_key] }
+  metrics.each_pair { |metric, value| DATADOG_CLIENT.send type, "#{collection.to_s}.#{metric.to_s}", value, :tags => [project_key] }
 end
 
 
