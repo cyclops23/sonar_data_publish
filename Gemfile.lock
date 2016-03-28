@@ -1,12 +1,17 @@
 GEM
   remote: https://rubygems.org/
   specs:
+    addressable (2.3.8)
     andand (1.3.3)
     dogstatsd-ruby (1.6.0)
     httparty (0.13.7)
       json (~> 1.8)
       multi_xml (>= 0.5.2)
     json (1.8.3)
+    keen (0.9.5)
+      addressable (~> 2.3.5)
+      multi_json (~> 1.3)
+    multi_json (1.11.2)
     multi_xml (0.5.5)
 
 PLATFORMS
@@ -16,6 +21,7 @@ DEPENDENCIES
   andand
   dogstatsd-ruby
   httparty
+  keen
 
 BUNDLED WITH
    1.11.2
