@@ -93,6 +93,20 @@ class Sonar
     string_val = Sonar::last_cell_value(metrics("alert_status", project_key)).andand.first
     string_val.nil? ? {} : {:quality_gate_status => self.quality_gate_map[string_val]}
   end
+
+  def project_tests(project_key)
+    ["coverage", "new_coverage"].inject({}) do |res, metric|
+      val = Sonar::last_cell_value(metrics(metric, project_key)).andand.first
+      val.nil? ? res : res.merge(metric.to_sym => val)
+    end
+  end
+
+  def project_tech_debt(project_key)
+    ["sqale_index", "sqale_debt_ratio"].inject({}) do |res, metric|
+      val = Sonar::last_cell_value(metrics(metric, project_key)).andand.first
+      val.nil? ? res : res.merge(metric.to_sym => val)
+    end
+  end
 end
 
 DATADOG_CLIENT = Statsd.new
@@ -126,6 +140,14 @@ keen_data = projects.inject([]) do |res, project|
   quality_gate = s.project_quality_gate(project)
   data.merge!(:quality_gate_status => quality_gate)
   submit_datadog_metrics(:gauge, collection.to_s, project,  quality_gate)
+
+  tests = s.project_tests(project)
+  data.merge!(:tests => tests)
+  submit_datadog_metrics(:gauge, collection.to_s, project,  tests)
+
+  tech_debt = s.project_tech_debt(project)
+  data.merge!(:tech_debt => tech_debt)
+  submit_datadog_metrics(:gauge, collection.to_s, project,  tech_debt)
 
   res << data
 end
