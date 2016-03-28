@@ -112,6 +112,6 @@ end
 
 #puts "keen_data: #{keen_data.inspect}"
 #puts "keen_data.class -> #{keen_data.class}"
-Keen.publish_batch(collection, keen_data})
+Keen.publish_batch(collection => keen_data)
 
 puts "Data published to DataDog and Keen"
