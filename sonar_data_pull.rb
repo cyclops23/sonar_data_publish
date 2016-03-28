@@ -14,6 +14,7 @@ require 'time'
 require 'httparty'
 require 'statsd'
 require 'andand'
+require 'keen'
 
 
 class Sonar
