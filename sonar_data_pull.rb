@@ -80,11 +80,25 @@ class Sonar
       val.nil? ? res : res.merge(metric.to_sym => val)
     end
   end
+
+  def quality_gate_map
+    {
+      "ERROR" => -2,
+      "WARN"  => -1,
+      "OK"    => 0
+    }
+  end
+
+  def project_quality_gate(project_key)
+    string_val = Sonar::last_cell_value(metrics("alert_status", project_key)).andand.first
+    string_val.nil? ? {} : {:quality_gate_status => self.quality_gate_map[string_val]}
+  end
 end
 
 DATADOG_CLIENT = Statsd.new
 
 def submit_datadog_metrics(type, collection, project_key, metrics)
+  #metrics.each_pair { |metric, value|  puts "DATADOG_CLIENT.send #{type}, \"#{collection.to_s}.#{metric.to_s}\", #{value}, :tags => [\"project:#{project_key}\"]" }
   metrics.each_pair { |metric, value| DATADOG_CLIENT.send type, "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
 end
 
@@ -94,6 +108,7 @@ collection = :sonar
 
 projects = s.projects
 keen_data = projects.inject([]) do |res, project|
+  puts "project #{project}"
   data = {:project_key => project}
 
   issues = s.project_issues(project)
@@ -107,6 +122,10 @@ keen_data = projects.inject([]) do |res, project|
   duplications = s.project_duplications(project)
   data.merge!(:duplications => duplications)
   submit_datadog_metrics(:gauge, collection.to_s, project,  duplications)
+
+  quality_gate = s.project_quality_gate(project)
+  data.merge!(:quality_gate_status => quality_gate)
+  submit_datadog_metrics(:gauge, collection.to_s, project,  quality_gate)
 
   res << data
 end
