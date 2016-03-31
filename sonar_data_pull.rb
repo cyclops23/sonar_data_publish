@@ -63,7 +63,9 @@ class Sonar
   def project_issues(project_key)
     ISSUE_SEVERITIES.inject({}) do |res, sev|
       num_violations = Sonar::last_cell_value(metrics("#{sev}_violations", project_key)).andand.first
+      new_violations = Sonar::last_cell_value(metrics("new_#{sev}_violations", project_key)).andand.first
       num_violations.nil? ? res : res.merge("#{sev}_violation_count".to_sym => num_violations)
+      new_violations.nil? ? res : res.merge("new_#{sev}_violation_count".to_sym => new_violations)
     end
   end
 
