@@ -121,44 +121,51 @@ def submit_datadog_metrics(type, collection, project_key, metrics)
   metrics.each_pair { |metric, value| DATADOG_CLIENT.send type, "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
 end
 
+def log(msg)
+  puts "#{Time.now} > #{msg}"
+end
+
 
 s = Sonar.new
 collection = :sonar
 
-projects = s.projects
-keen_data = projects.inject([]) do |res, project|
-  puts "project #{project}"
-  data = {:project_key => project}
+while true
+  projects = s.projects
+  keen_data = projects.inject([]) do |res, project|
+    log "project #{project}"
+    data = {:project_key => project}
 
-  issues = s.project_issues(project)
-  data.merge!(:issues => issues)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  issues)
+    issues = s.project_issues(project)
+    data.merge!(:issues => issues)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  issues)
 
-  complexity = s.project_complexity(project)
-  data.merge!(:complexity => complexity)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  complexity)
+    complexity = s.project_complexity(project)
+    data.merge!(:complexity => complexity)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  complexity)
 
-  duplications = s.project_duplications(project)
-  data.merge!(:duplications => duplications)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  duplications)
+    duplications = s.project_duplications(project)
+    data.merge!(:duplications => duplications)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  duplications)
 
-  quality_gate = s.project_quality_gate(project)
-  data.merge!(:quality_gate_status => quality_gate)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  quality_gate)
+    quality_gate = s.project_quality_gate(project)
+    data.merge!(:quality_gate_status => quality_gate)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  quality_gate)
 
-  tests = s.project_tests(project)
-  data.merge!(:tests => tests)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  tests)
+    tests = s.project_tests(project)
+    data.merge!(:tests => tests)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  tests)
 
-  tech_debt = s.project_tech_debt(project)
-  data.merge!(:tech_debt => tech_debt)
-  submit_datadog_metrics(:gauge, collection.to_s, project,  tech_debt)
+    tech_debt = s.project_tech_debt(project)
+    data.merge!(:tech_debt => tech_debt)
+    submit_datadog_metrics(:gauge, collection.to_s, project,  tech_debt)
 
-  res << data
+    res << data
+  end
+
+  #puts "keen_data: #{keen_data.inspect}"
+  #puts "keen_data.class -> #{keen_data.class}"
+  Keen.publish_batch(collection => keen_data)
+
+  log "Data published to DataDog and Keen"
+  sleep 3600
 end
-
-#puts "keen_data: #{keen_data.inspect}"
-#puts "keen_data.class -> #{keen_data.class}"
-Keen.publish_batch(collection => keen_data)
-
-puts "Data published to DataDog and Keen"
