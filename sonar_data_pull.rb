@@ -12,7 +12,7 @@ require 'bundler/setup'
 
 require 'time'
 require 'httparty'
-require 'statsd'
+require 'dogapi'
 require 'andand'
 require 'keen'
 
@@ -114,11 +114,11 @@ class Sonar
   end
 end
 
-DATADOG_CLIENT = Statsd.new
+DATADOG_CLIENT = Dogapi::Client.new(ENV['DATADOG_API_KEY'])
 
-def submit_datadog_metrics(type, collection, project_key, metrics)
-  #metrics.each_pair { |metric, value|  puts "DATADOG_CLIENT.send #{type}, \"#{collection.to_s}.#{metric.to_s}\", #{value}, :tags => [\"project:#{project_key}\"]" }
-  metrics.each_pair { |metric, value| DATADOG_CLIENT.send type, "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
+def submit_datadog_metrics(collection, project_key, metrics)
+  #metrics.each_pair { |metric, value|  puts "DATADOG_CLIENT.emit_point \"#{collection.to_s}.#{metric.to_s}\", #{value}, :tags => [\"project:#{project_key}\"]" }
+  metrics.each_pair { |metric, value| DATADOG_CLIENT.emit_point "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
 end
 
 def log(msg)
@@ -137,27 +137,27 @@ while true
 
     issues = s.project_issues(project)
     data.merge!(:issues => issues)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  issues)
+    submit_datadog_metrics(collection.to_s, project,  issues)
 
     complexity = s.project_complexity(project)
     data.merge!(:complexity => complexity)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  complexity)
+    submit_datadog_metrics(collection.to_s, project,  complexity)
 
     duplications = s.project_duplications(project)
     data.merge!(:duplications => duplications)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  duplications)
+    submit_datadog_metrics(collection.to_s, project,  duplications)
 
     quality_gate = s.project_quality_gate(project)
     data.merge!(:quality_gate_status => quality_gate)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  quality_gate)
+    submit_datadog_metrics(collection.to_s, project,  quality_gate)
 
     tests = s.project_tests(project)
     data.merge!(:tests => tests)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  tests)
+    submit_datadog_metrics(collection.to_s, project,  tests)
 
     tech_debt = s.project_tech_debt(project)
     data.merge!(:tech_debt => tech_debt)
-    submit_datadog_metrics(:gauge, collection.to_s, project,  tech_debt)
+    submit_datadog_metrics(collection.to_s, project,  tech_debt)
 
     res << data
   end
