@@ -6,6 +6,8 @@
 #    KEEN_WRITE_KEY
 #    KEEN_READ_KEY
 #    SONAR_URL
+#    DATABOX_TOKEN
+#    DATADOG_API_KEY
 
 require 'rubygems'
 require 'bundler/setup'
@@ -15,18 +17,151 @@ require 'httparty'
 require 'dogapi'
 require 'andand'
 require 'keen'
+require 'databox'
+require 'optparse'
+
+
+@options = {
+  :verbose => false,
+  :datasources => {
+    :keen    => true,
+    :datadog => true,
+    :databox => true
+  }
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: sonar_data_pull.rb [@@options]"
+
+  opts.on("-h", "--help", "Show help") do
+    puts opts
+    exit
+  end
+
+  opts.on("-v", "--[no-]verbose", "Run verbosely\tDefault: false") do |v|
+    @options[:verbose] = v
+  end
+
+  opts.on("--[no-]keen", "Publish data to Keen.io\tDefault: true") do |v|
+    @options[:datasources][:keen] = v
+  end
+
+  opts.on("--[no-]datadog", "Publish data to DataDog\tDefault: true") do |v|
+    @options[:datasources][:datadog] = v
+  end
+
+  opts.on("--[no-]databox", "Publish data to Databox\tDefault: true") do |v|
+    @options[:datasources][:databox] = v
+  end
+end.parse!
+
+p @options
+
+
+def log(msg)
+  puts "#{Time.now} > #{msg}"
+end
+
+def datasources
+  @options[:datasources].select{|k,v| v}.keys
+end
+
+def is_datasource_enabled?(source)
+  #puts "source #{source}"
+  #puts "options: #{@options}"
+  @options[:datasources][source] == true
+end
+
+
+class Datasource
+  attr_reader :client, :env_token, :options
+
+  def initialize(env_token, opts={})
+    @env_token = env_token
+    @options   = {
+      :verbose => false,
+      :enabled => true
+    }.merge(opts)
+
+    init_client
+  end
+
+  def init_client
+  end
+
+  def verbose?
+    options[:verbose]
+  end
+
+  def enabled?
+    options[:enabled]
+  end
+end
+
+class DataboxSource < Datasource
+  def init_client
+    puts "env_token: #{ENV[env_token]}"
+    Databox.configure do |c| 
+      c.push_token = ENV[env_token]
+    end
+
+    @client = Databox::Client.new
+  end
+
+  def publish(project_key, metrics)
+    if enabled?
+      metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, attributes: { project: #{project_key} })" } if verbose?
+      metrics.each_pair { |metric, value| client.push(key: metric.to_s, value: value, attributes: { project: project_key }) }
+    end
+  end
+end
+
+class DatadogSource < Datasource
+  def init_client
+    @client = Dogapi::Client.new(ENV[env_token])
+  end
+
+  def publish(collection, project_key, metrics)
+    if enabled?
+      metrics.each_pair { |metric, value| puts "client.emit_point \"#{collection.to_s}.#{metric.to_s}\", #{value}, :tags => [\"project:#{project_key}\"]" } if verbose?
+      metrics.each_pair { |metric, value| client.emit_point "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
+    end
+  end
+end
+
+class KeenSource < Datasource
+  def publish(collection, data)
+    if enabled?
+      puts "keen_data: #{keen_data.inspect}\nkeen_data.class -> #{keen_data.class}" if verbose?
+      ::Keen.publish_batch(collection => keen_data)
+    end
+  end
+end
 
 
 class Sonar
+  attr_reader :options
+
   include HTTParty
   base_uri ENV["SONAR_URL"]
-  #debug_output $stdout
+
+  def initialize(opts={})
+    @options   = {
+      :verbose => false
+    }.merge(opts)
+
+    debug_output $stdout if verbose?
+  end
+
+  def verbose?
+    options[:verbose]
+  end
 
   DEFAULT_QUERY_OPTS = {:format => "json"}
   ISSUE_SEVERITIES   = ["blocker", "critical", "major", "minor", "info"]
 
   def self.last_cell_value(http_response)
-    #puts "Debug: #{http_response.body}"
+    #puts "Debug: #{http_response.body}" if options[:verbose]
     JSON.parse(http_response.body).last["cells"].last.andand["v"]
   end
 
@@ -114,58 +249,54 @@ class Sonar
   end
 end
 
-DATADOG_CLIENT = Dogapi::Client.new(ENV['DATADOG_API_KEY'])
-
-def submit_datadog_metrics(collection, project_key, metrics)
-  #metrics.each_pair { |metric, value|  puts "DATADOG_CLIENT.emit_point \"#{collection.to_s}.#{metric.to_s}\", #{value}, :tags => [\"project:#{project_key}\"]" }
-  metrics.each_pair { |metric, value| DATADOG_CLIENT.emit_point "#{collection.to_s}.#{metric.to_s}", value, :tags => ["project:#{project_key}"] }
-end
-
-def log(msg)
-  puts "#{Time.now} > #{msg}"
-end
 
 
 s = Sonar.new
 collection = :sonar
 
-while true
-  projects = s.projects
-  keen_data = projects.inject([]) do |res, project|
-    log "project #{project}"
-    data = {:project_key => project}
+databox = DataboxSource.new('DATABOX_TOKEN', :verbose => @options[:verbose], :enabled => @options[:datasources][:databox])
+puts "Databox -> #{databox.inspect}\tclient: #{databox.client}"
+datadog = DatadogSource.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datasources][:datadog])
+keen    = KeenSource.new(nil, :verbose => @options[:verbose], :enabled => @options[:datasources][:keen])
 
-    issues = s.project_issues(project)
-    data.merge!(:issues => issues)
-    submit_datadog_metrics(collection.to_s, project,  issues)
+projects = s.projects
+keen_data = projects.inject([]) do |res, project|
+  log "project #{project}"
+  data = {:project_key => project}
 
-    complexity = s.project_complexity(project)
-    data.merge!(:complexity => complexity)
-    submit_datadog_metrics(collection.to_s, project,  complexity)
+  issues = s.project_issues(project)
+  data.merge!(:issues => issues)
+  datadog.publish(collection.to_s, project,  issues)
+  databox.publish(project, issues)
 
-    duplications = s.project_duplications(project)
-    data.merge!(:duplications => duplications)
-    submit_datadog_metrics(collection.to_s, project,  duplications)
+  complexity = s.project_complexity(project)
+  data.merge!(:complexity => complexity)
+  datadog.publish(collection.to_s, project,  complexity)
+  databox.publish(project, complexity)
 
-    quality_gate = s.project_quality_gate(project)
-    data.merge!(:quality_gate_status => quality_gate)
-    submit_datadog_metrics(collection.to_s, project,  quality_gate)
+  duplications = s.project_duplications(project)
+  data.merge!(:duplications => duplications)
+  datadog.publish(collection.to_s, project,  duplications)
+  databox.publish(project, duplications)
 
-    tests = s.project_tests(project)
-    data.merge!(:tests => tests)
-    submit_datadog_metrics(collection.to_s, project,  tests)
+  quality_gate = s.project_quality_gate(project)
+  data.merge!(:quality_gate_status => quality_gate)
+  datadog.publish(collection.to_s, project,  quality_gate)
+  databox.publish(project, quality_gate)
 
-    tech_debt = s.project_tech_debt(project)
-    data.merge!(:tech_debt => tech_debt)
-    submit_datadog_metrics(collection.to_s, project,  tech_debt)
+  tests = s.project_tests(project)
+  data.merge!(:tests => tests)
+  datadog.publish(collection.to_s, project,  tests)
+  databox.publish(project, tests)
 
-    res << data
-  end
+  tech_debt = s.project_tech_debt(project)
+  data.merge!(:tech_debt => tech_debt)
+  datadog.publish(collection.to_s, project,  tech_debt)
+  databox.publish(project, tech_debt)
 
-  #puts "keen_data: #{keen_data.inspect}"
-  #puts "keen_data.class -> #{keen_data.class}"
-  Keen.publish_batch(collection => keen_data)
-
-  log "Data published to DataDog and Keen"
-  sleep 3600
+  res << data
 end
+
+keen.publish(collection, keen_data)
+
+log "Data published to #{datasources.join(',')}"
