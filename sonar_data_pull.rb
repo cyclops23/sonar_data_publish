@@ -31,7 +31,7 @@ require 'optparse'
 }
 
 OptionParser.new do |opts|
-  opts.banner = "Usage: sonar_data_pull.rb [@@options]"
+  opts.banner = "Usage: sonar_data_pull.rb [options]"
 
   opts.on("-h", "--help", "Show help") do
     puts opts
