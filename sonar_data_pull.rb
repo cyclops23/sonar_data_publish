@@ -67,8 +67,6 @@ def datasources
 end
 
 def is_datasource_enabled?(source)
-  #puts "source #{source}"
-  #puts "options: #{@options}"
   @options[:datasources][source] == true
 end
 
@@ -255,7 +253,6 @@ s = Sonar.new
 collection = :sonar
 
 databox = DataboxSource.new('DATABOX_TOKEN', :verbose => @options[:verbose], :enabled => @options[:datasources][:databox])
-puts "Databox -> #{databox.inspect}\tclient: #{databox.client}"
 datadog = DatadogSource.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datasources][:datadog])
 keen    = KeenSource.new(nil, :verbose => @options[:verbose], :enabled => @options[:datasources][:keen])
 
