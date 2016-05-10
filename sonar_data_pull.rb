@@ -58,6 +58,14 @@ OptionParser.new do |opts|
   opts.on("-p", "--projects PROJECT_KEYS", "Project filter: comma separated keys") do |p|
     @options[:projects] = p.split(',')
   end
+
+  opts.on("-f", "--from_time SECONDS_AGO", "Seconds ago queries should start") do |t|
+    @options[:from_time] = (Time.now - t.to_i).utc.iso8601
+  end
+
+  opts.on("-t", "--to_time SECONDS_AGO", "Seconds ago queries should end") do |t|
+    @options[:to_time] = (Time.now - t.to_i).utc.iso8601
+  end
 end.parse!
 
 p @options
@@ -75,6 +83,10 @@ def is_datasource_enabled?(source)
   @options[:datasources][source] == true
 end
 
+def verbose?
+  @options[:verbose]
+end
+
 
 class Datasource
   attr_reader :client, :env_token, :options
@@ -83,7 +95,8 @@ class Datasource
     @env_token = env_token
     @options   = {
       :verbose => false,
-      :enabled => true
+      :enabled => true,
+      :submit_time => Time.now.utc.strftime("%Y-%m-%d %H:%M:%S")
     }.merge(opts)
 
     init_client
@@ -103,7 +116,7 @@ end
 
 class DataboxSource < Datasource
   def init_client
-    puts "env_token: #{ENV[env_token]}"
+    puts "env_token: #{ENV[env_token]}" if verbose?
     Databox.configure do |c| 
       c.push_token = ENV[env_token]
     end
@@ -111,10 +124,10 @@ class DataboxSource < Datasource
     @client = Databox::Client.new
   end
 
-  def publish(project_key, metrics)
+  def publish(project_key, metrics, opts={})
     if enabled?
-      metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, attributes: { project: #{project_key} })" } if verbose?
-      metrics.each_pair { |metric, value| client.push(key: metric.to_s, value: value, attributes: { project: project_key }) }
+      metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, date: #{options[:submit_time]}, attributes: { project: #{project_key} })" } if verbose?
+      metrics.each_pair { |metric, value| client.push(key: metric.to_s, value: value, date: options[:submit_time], attributes: { project: project_key }) }
     end
   end
 end
@@ -143,22 +156,17 @@ end
 
 
 class Sonar
-  attr_reader :options
+  attr_reader :verbose, :project_filter, :to_time, :from_time
 
   include HTTParty
   base_uri ENV["SONAR_URL"]
+  #debug_output $stdout
 
   def initialize(opts={})
-    @options   = {
-      :verbose  => false,
-      :projects => []
-    }.merge(opts)
-
-    debug_output $stdout if verbose?
-  end
-
-  def verbose?
-    options[:verbose]
+    @verbose        = opts[:verbose].nil?  ? false                : opts[:verbose]
+    @project_filter = opts[:projects].nil? ? []                   : opts[:projects]
+    @to_time        = opts[:to_time].nil?  ? Time.now.utc.iso8601 : opts[:to_time]
+    @from_time      = opts[:from_time]
   end
 
   DEFAULT_QUERY_OPTS = {:format => "json"}
@@ -169,24 +177,16 @@ class Sonar
     JSON.parse(http_response.body).last["cells"].last.andand["v"]
   end
 
-  def today
-    Time.now.utc.iso8601
-  end
-
-  def yesterday
-    (Time.now - 90000).utc.iso8601
-  end
-
   def metrics(metrics,resource,query_opts={})
     options = {
       :query => {
         :metrics      => metrics,
         :resource     => resource,
-        :toDateTime   => today,
-        :fromDateTime => yesterday
-      }.merge(DEFAULT_QUERY_OPTS).merge(query_opts)
+        :toDateTime   => to_time,
+        :fromDateTime => from_time
+      }.merge(DEFAULT_QUERY_OPTS).merge(query_opts).reject {|k,v| v.nil?}
     }
-    
+
     self.class.get("/api/timemachine", options)
   end
 
@@ -198,7 +198,7 @@ class Sonar
 
   def projects
     project_keys = JSON.parse(resources(:qualifiers => "TRK").body).collect{|r| r["key"]}
-    options[:projects].empty? ? project_keys : project_keys & options[:projects]
+    project_filter.empty? ? project_keys : project_keys & project_filter
   end
 
   def project_issues(project_key)
@@ -256,10 +256,19 @@ end
 
 
 
-s = Sonar.new(:projects => @options[:projects])
+s = Sonar.new(
+  :projects  => @options[:projects], 
+  :verbose   => @options[:verbose],
+  :from_time => @options[:from_time],
+  :to_time   => @options[:to_time]
+)
+puts "Sonar: #{s.inspect}" if verbose?
 collection = :sonar
 
-databox = DataboxSource.new('DATABOX_TOKEN', :verbose => @options[:verbose], :enabled => @options[:datasources][:databox])
+databox = DataboxSource.new('DATABOX_TOKEN', 
+  :submit_time => s.to_time,
+  :verbose     => @options[:verbose], 
+  :enabled     => @options[:datasources][:databox])
 datadog = DatadogSource.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datasources][:datadog])
 keen    = KeenSource.new(nil, :verbose => @options[:verbose], :enabled => @options[:datasources][:keen])
 
