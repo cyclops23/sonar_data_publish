@@ -27,7 +27,8 @@ require 'optparse'
     :keen    => true,
     :datadog => true,
     :databox => true
-  }
+  },
+  :projects => []
 }
 
 OptionParser.new do |opts|
@@ -52,6 +53,10 @@ OptionParser.new do |opts|
 
   opts.on("--[no-]databox", "Publish data to Databox\tDefault: true") do |v|
     @options[:datasources][:databox] = v
+  end
+
+  opts.on("-p", "--projects PROJECT_KEYS", "Project filter: comma separated keys") do |p|
+    @options[:projects] = p.split(',')
   end
 end.parse!
 
@@ -145,7 +150,8 @@ class Sonar
 
   def initialize(opts={})
     @options   = {
-      :verbose => false
+      :verbose  => false,
+      :projects => []
     }.merge(opts)
 
     debug_output $stdout if verbose?
@@ -177,7 +183,7 @@ class Sonar
         :metrics      => metrics,
         :resource     => resource,
         :toDateTime   => today,
-        #:fromDateTime => yesterday
+        :fromDateTime => yesterday
       }.merge(DEFAULT_QUERY_OPTS).merge(query_opts)
     }
     
@@ -191,7 +197,8 @@ class Sonar
   end
 
   def projects
-    JSON.parse(resources(:qualifiers => "TRK").body).collect{|r| r["key"]}
+    project_keys = JSON.parse(resources(:qualifiers => "TRK").body).collect{|r| r["key"]}
+    options[:projects].empty? ? project_keys : project_keys & options[:projects]
   end
 
   def project_issues(project_key)
@@ -249,7 +256,7 @@ end
 
 
 
-s = Sonar.new
+s = Sonar.new(:projects => @options[:projects])
 collection = :sonar
 
 databox = DataboxSource.new('DATABOX_TOKEN', :verbose => @options[:verbose], :enabled => @options[:datasources][:databox])
@@ -296,4 +303,4 @@ end
 
 keen.publish(collection, keen_data)
 
-log "Data published to #{datasources.join(',')}"
+log "Data published to #{datasources.join(',')}" unless datasources.empty?
