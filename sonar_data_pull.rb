@@ -266,7 +266,7 @@ puts "Sonar: #{s.inspect}" if verbose?
 collection = :sonar
 
 databox = DataboxSource.new('DATABOX_TOKEN', 
-  :submit_time => s.to_time,
+  :submit_time => Time.parse(s.to_time).strftime("%Y-%m-%d %H:%M:%S"),
   :verbose     => @options[:verbose], 
   :enabled     => @options[:datasources][:databox])
 datadog = DatadogSource.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datasources][:datadog])
