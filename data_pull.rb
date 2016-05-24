@@ -8,6 +8,7 @@
 #    SONAR_URL
 #    DATABOX_TOKEN
 #    DATADOG_API_KEY
+#    PIVOTAL_TRACKER_TOKEN
 
 require 'rubygems'
 require 'bundler/setup'
@@ -21,6 +22,7 @@ require 'databox'
 require 'optparse'
 require './datatarget'
 require './sonar'
+require './pivotal_tracker'
 
 
 @options = {
@@ -29,6 +31,10 @@ require './sonar'
     :keen    => true,
     :datadog => true,
     :databox => true
+  },
+  :datasources => {
+    :sonar           => true,
+    :pivotal_tracker => true
   },
   :projects => []
 }
@@ -57,6 +63,14 @@ OptionParser.new do |opts|
     @options[:datatargets][:databox] = v
   end
 
+  opts.on("--[no-]sonar", "Pull data from Sonar\tDefault: true") do |v|
+    @options[:datasources][:sonar] = v
+  end
+
+  opts.on("--[no-]pivotal_tracker", "Pull data from PivotalTracker\tDefault: true") do |v|
+    @options[:datasources][:pivotal_tracker] = v
+  end
+
   opts.on("-p", "--projects PROJECT_KEYS", "Project filter: comma separated keys") do |p|
     @options[:projects] = p.split(',')
   end
@@ -72,7 +86,6 @@ end.parse!
 
 p @options
 
-
 def log(msg)
   puts "#{Time.now} > #{msg}"
 end
@@ -85,66 +98,85 @@ def is_datatarget_enabled?(target)
   @options[:datatargets][target] == true
 end
 
+def is_datasource_enabled?(source)
+  @options[:datasources][source] == true
+end
+
 def verbose?
   @options[:verbose]
 end
 
-
-
-s = Sonar.new(
-  :projects  => @options[:projects], 
-  :verbose   => @options[:verbose],
-  :from_time => @options[:from_time],
-  :to_time   => @options[:to_time]
-)
-puts "Sonar: #{s.inspect}" if verbose?
-collection = :sonar
-
+#
+# Data targets
+#
 databox = DataboxTarget.new('DATABOX_TOKEN', 
-  :submit_time => Time.parse(s.to_time).strftime("%Y-%m-%d %H:%M:%S"),
+  :submit_time => @options[:to_time].nil? ? nil : Time.parse(@options[:to_time]).strftime("%Y-%m-%d %H:%M:%S"),
   :verbose     => @options[:verbose], 
   :enabled     => @options[:datatargets][:databox])
 datadog = DatadogTarget.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datatargets][:datadog])
 keen    = KeenTarget.new(nil, :verbose => @options[:verbose], :enabled => @options[:datatargets][:keen])
 
-projects = s.projects
-keen_data = projects.inject([]) do |res, project|
-  log "project #{project}"
-  data = {:project_key => project}
+#
+# Data sources
+#
 
-  issues = s.project_issues(project)
-  data.merge!(:issues => issues)
-  datadog.publish(collection.to_s, project,  issues)
-  databox.publish(project, issues)
+# Sonar
+if is_datasource_enabled?(:sonar)
+  s = Sonar.new(
+    :projects  => @options[:projects], 
+    :verbose   => @options[:verbose],
+    :from_time => @options[:from_time],
+    :to_time   => @options[:to_time]
+  )
+  puts "Sonar: #{s.inspect}" if verbose?
+  collection = :sonar
 
-  complexity = s.project_complexity(project)
-  data.merge!(:complexity => complexity)
-  datadog.publish(collection.to_s, project,  complexity)
-  databox.publish(project, complexity)
+  projects = s.projects
+  keen_data = projects.inject([]) do |res, project|
+    log "project #{project}"
+    data = {:project_key => project}
 
-  duplications = s.project_duplications(project)
-  data.merge!(:duplications => duplications)
-  datadog.publish(collection.to_s, project,  duplications)
-  databox.publish(project, duplications)
+    issues = s.project_issues(project)
+    data.merge!(:issues => issues)
+    datadog.publish(collection.to_s, project,  issues)
+    databox.publish(project, issues)
 
-  quality_gate = s.project_quality_gate(project)
-  data.merge!(:quality_gate_status => quality_gate)
-  datadog.publish(collection.to_s, project,  quality_gate)
-  databox.publish(project, quality_gate)
+    complexity = s.project_complexity(project)
+    data.merge!(:complexity => complexity)
+    datadog.publish(collection.to_s, project,  complexity)
+    databox.publish(project, complexity)
 
-  tests = s.project_tests(project)
-  data.merge!(:tests => tests)
-  datadog.publish(collection.to_s, project,  tests)
-  databox.publish(project, tests)
+    duplications = s.project_duplications(project)
+    data.merge!(:duplications => duplications)
+    datadog.publish(collection.to_s, project,  duplications)
+    databox.publish(project, duplications)
 
-  tech_debt = s.project_tech_debt(project)
-  data.merge!(:tech_debt => tech_debt)
-  datadog.publish(collection.to_s, project,  tech_debt)
-  databox.publish(project, tech_debt)
+    quality_gate = s.project_quality_gate(project)
+    data.merge!(:quality_gate_status => quality_gate)
+    datadog.publish(collection.to_s, project,  quality_gate)
+    databox.publish(project, quality_gate)
 
-  res << data
+    tests = s.project_tests(project)
+    data.merge!(:tests => tests)
+    datadog.publish(collection.to_s, project,  tests)
+    databox.publish(project, tests)
+
+    tech_debt = s.project_tech_debt(project)
+    data.merge!(:tech_debt => tech_debt)
+    datadog.publish(collection.to_s, project,  tech_debt)
+    databox.publish(project, tech_debt)
+
+    res << data
+  end
+
+  keen.publish(collection, keen_data)
 end
 
-keen.publish(collection, keen_data)
+# Pivotal Tracker
+# ONLY SUPPORT SINGLE DAY VIEW
+if is_datasource_enabled?(:pivotal_tracker)
+  pt = PivotalTracker.new(ENV['PIVOTAL_TRACKER_TOKEN'])
+  pt.project_ids.each_pair { |project_id, project_name| pt.history(project_id).last.reject{|k,v| k == "date"}.each_pair {|metric_name, metric_value| databox.publish(project_name, {metric_name => metric_value}) } }
+end
 
 log "Data published to #{datatargets.join(',')}" unless datatargets.empty?
