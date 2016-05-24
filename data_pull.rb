@@ -19,13 +19,13 @@ require 'andand'
 require 'keen'
 require 'databox'
 require 'optparse'
-require './datasource'
+require './datatarget'
 require './sonar'
 
 
 @options = {
   :verbose => false,
-  :datasources => {
+  :datatargets => {
     :keen    => true,
     :datadog => true,
     :databox => true
@@ -46,15 +46,15 @@ OptionParser.new do |opts|
   end
 
   opts.on("--[no-]keen", "Publish data to Keen.io\tDefault: true") do |v|
-    @options[:datasources][:keen] = v
+    @options[:datatargets][:keen] = v
   end
 
   opts.on("--[no-]datadog", "Publish data to DataDog\tDefault: true") do |v|
-    @options[:datasources][:datadog] = v
+    @options[:datatargets][:datadog] = v
   end
 
   opts.on("--[no-]databox", "Publish data to Databox\tDefault: true") do |v|
-    @options[:datasources][:databox] = v
+    @options[:datatargets][:databox] = v
   end
 
   opts.on("-p", "--projects PROJECT_KEYS", "Project filter: comma separated keys") do |p|
@@ -77,12 +77,12 @@ def log(msg)
   puts "#{Time.now} > #{msg}"
 end
 
-def datasources
-  @options[:datasources].select{|k,v| v}.keys
+def datatargets
+  @options[:datatargets].select{|k,v| v}.keys
 end
 
-def is_datasource_enabled?(source)
-  @options[:datasources][source] == true
+def is_datatarget_enabled?(target)
+  @options[:datatargets][target] == true
 end
 
 def verbose?
@@ -100,12 +100,12 @@ s = Sonar.new(
 puts "Sonar: #{s.inspect}" if verbose?
 collection = :sonar
 
-databox = DataboxSource.new('DATABOX_TOKEN', 
+databox = DataboxTarget.new('DATABOX_TOKEN', 
   :submit_time => Time.parse(s.to_time).strftime("%Y-%m-%d %H:%M:%S"),
   :verbose     => @options[:verbose], 
-  :enabled     => @options[:datasources][:databox])
-datadog = DatadogSource.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datasources][:datadog])
-keen    = KeenSource.new(nil, :verbose => @options[:verbose], :enabled => @options[:datasources][:keen])
+  :enabled     => @options[:datatargets][:databox])
+datadog = DatadogTarget.new('DATADOG_API_KEY', :verbose => @options[:verbose], :enabled => @options[:datatargets][:datadog])
+keen    = KeenTarget.new(nil, :verbose => @options[:verbose], :enabled => @options[:datatargets][:keen])
 
 projects = s.projects
 keen_data = projects.inject([]) do |res, project|
@@ -147,4 +147,4 @@ end
 
 keen.publish(collection, keen_data)
 
-log "Data published to #{datasources.join(',')}" unless datasources.empty?
+log "Data published to #{datatargets.join(',')}" unless datatargets.empty?
