@@ -176,7 +176,11 @@ end
 # ONLY SUPPORT SINGLE DAY VIEW
 if is_datasource_enabled?(:pivotal_tracker)
   pt = PivotalTracker.new(ENV['PIVOTAL_TRACKER_TOKEN'])
-  pt.project_ids.each_pair { |project_id, project_name| pt.history(project_id).last.reject{|k,v| k == "date"}.each_pair {|metric_name, metric_value| databox.publish(project_name, {metric_name => metric_value}) } }
+  pt.project_ids.each_pair do |project_id, project_name| 
+    history = pt.history(project_id).last
+    next if history.nil?
+    history.reject{|k,v| k == "date"}.each_pair {|metric_name, metric_value| databox.publish(project_name, {metric_name => metric_value}) }
+  end
 end
 
 log "Data published to #{datatargets.join(',')}" unless datatargets.empty?
