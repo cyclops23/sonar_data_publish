@@ -106,6 +106,17 @@ def verbose?
   @options[:verbose]
 end
 
+def cleanse_string(str)
+  encoding_options = {
+    :invalid           => :replace,  # Replace invalid byte sequences
+    :undef             => :replace,  # Replace anything not defined in ASCII
+    :replace           => '',        # Use a blank for those replacements
+    :universal_newline => true       # Always break lines with \n
+  }
+
+  str.encode(Encoding.find('ASCII'), encoding_options).gsub('^', '').strip
+end
+
 #
 # Data targets
 #
@@ -136,35 +147,59 @@ if is_datasource_enabled?(:sonar)
     log "project #{project}"
     data = {:project_key => project}
 
-    issues = s.project_issues(project)
-    data.merge!(:issues => issues)
-    datadog.publish(collection.to_s, project,  issues)
-    databox.publish(project, issues)
+    begin
+      issues = s.project_issues(project)
+      data.merge!(:issues => issues)
+      datadog.publish(collection.to_s, project,  issues)
+      databox.publish(project, issues)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
-    complexity = s.project_complexity(project)
-    data.merge!(:complexity => complexity)
-    datadog.publish(collection.to_s, project,  complexity)
-    databox.publish(project, complexity)
+    begin
+      complexity = s.project_complexity(project)
+      data.merge!(:complexity => complexity)
+      datadog.publish(collection.to_s, project,  complexity)
+      databox.publish(project, complexity)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
-    duplications = s.project_duplications(project)
-    data.merge!(:duplications => duplications)
-    datadog.publish(collection.to_s, project,  duplications)
-    databox.publish(project, duplications)
+    begin
+      duplications = s.project_duplications(project)
+      data.merge!(:duplications => duplications)
+      datadog.publish(collection.to_s, project,  duplications)
+      databox.publish(project, duplications)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
-    quality_gate = s.project_quality_gate(project)
-    data.merge!(:quality_gate_status => quality_gate)
-    datadog.publish(collection.to_s, project,  quality_gate)
-    databox.publish(project, quality_gate)
+    begin
+      quality_gate = s.project_quality_gate(project)
+      data.merge!(:quality_gate_status => quality_gate)
+      datadog.publish(collection.to_s, project,  quality_gate)
+      databox.publish(project, quality_gate)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
-    tests = s.project_tests(project)
-    data.merge!(:tests => tests)
-    datadog.publish(collection.to_s, project,  tests)
-    databox.publish(project, tests)
+    begin
+      tests = s.project_tests(project)
+      data.merge!(:tests => tests)
+      datadog.publish(collection.to_s, project,  tests)
+      databox.publish(project, tests)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
-    tech_debt = s.project_tech_debt(project)
-    data.merge!(:tech_debt => tech_debt)
-    datadog.publish(collection.to_s, project,  tech_debt)
-    databox.publish(project, tech_debt)
+    begin
+      tech_debt = s.project_tech_debt(project)
+      data.merge!(:tech_debt => tech_debt)
+      datadog.publish(collection.to_s, project,  tech_debt)
+      databox.publish(project, tech_debt)
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
 
     res << data
   end
@@ -176,10 +211,26 @@ end
 # ONLY SUPPORT SINGLE DAY VIEW
 if is_datasource_enabled?(:pivotal_tracker)
   pt = PivotalTracker.new(ENV['PIVOTAL_TRACKER_TOKEN'])
-  pt.project_ids.each_pair do |project_id, project_name| 
-    history = pt.history(project_id).last
-    next if history.nil?
-    history.reject{|k,v| k == "date"}.each_pair {|metric_name, metric_value| databox.publish(project_name, {metric_name => metric_value}) }
+  pt.project_ids.each_pair do |project_id, project_name|
+    begin
+      history = pt.history(project_id).last
+      history.reject{|k,v| k == "date"}.each_pair {|metric_name, metric_value| databox.publish(project_name, {metric_name => metric_value}) } unless history.nil?
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
+
+    begin
+      releases = pt.releases(project_id)
+      releases.each do |release|
+        release_data = pt.release(project_id, release["id"])
+        release_data.each_pair do |metric_name, metric_value|
+          next if(metric_name =~ /id|name|project_id/)
+          databox.publish(project_name, {"release_#{metric_name}" => metric_value}, attributes: {release_name: cleanse_string(release_data["name"])})
+        end
+      end
+    rescue => e
+      puts "Received failed response: #{e.message}\n#{e.backtrace.join("\n")}"
+    end
   end
 end
 
