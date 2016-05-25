@@ -40,10 +40,9 @@ class DataboxTarget < Datatarget
     additional_attributes = opts[:attributes] || {}
     attributes = { project: project_key }.merge(additional_attributes)
 
-    metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, date: #{options[:submit_time]}, attributes: #{attributes}" } if verbose?
     if enabled?
-      metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, date: #{options[:submit_time]}, attributes: { project: #{project_key} })" } if verbose?
-      metrics.each_pair { |metric, value| client.push(key: metric.to_s, value: value, date: options[:submit_time], attributes: { project: project_key }) }
+      metrics.each_pair { |metric, value| puts "client.push(key: #{metric.to_s}, value: #{value}, date: #{options[:submit_time]}, attributes: #{attributes})" } if verbose?
+      metrics.each_pair { |metric, value| client.push(key: metric.to_s, value: value, date: options[:submit_time], attributes: attributes) }
     end
   end
 end
